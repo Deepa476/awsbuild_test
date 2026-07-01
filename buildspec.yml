@@ -25,11 +25,8 @@ phases:
     commands:
       - echo "========== INSTALL PHASE =========="
 
-      # Update packages
-      - yum update -y
-
-      # Install required packages
-      - yum install -y java-17-amazon-corretto-devel curl wget unzip tar findutils which
+      # Install Java (curl is already available as curl-minimal)
+      - yum install -y java-17-amazon-corretto-devel unzip wget tar findutils which
 
       # Java
       - export JAVA_HOME=/usr/lib/jvm/java-17-amazon-corretto
@@ -44,34 +41,32 @@ phases:
 
       - mkdir -p $ANDROID_HOME/cmdline-tools
 
-      # Download Android Command Line Tools
       - cd /tmp
+
       - curl -L -o cmdline-tools.zip https://dl.google.com/android/repository/commandlinetoolslinux-11076708_latest.zip
+
       - unzip -q cmdline-tools.zip -d $ANDROID_HOME/cmdline-tools
+
       - mv $ANDROID_HOME/cmdline-tools/cmdline-tools $ANDROID_HOME/cmdline-tools/latest
+
       - rm -f cmdline-tools.zip
 
-      # PATH
       - export PATH=$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$PATH
 
-      # Verify sdkmanager
       - sdkmanager --version
 
-      # Accept licenses
       - yes | sdkmanager --licenses
 
-      # Install Android SDK Components
       - sdkmanager "platform-tools"
       - sdkmanager "platforms;android-36"
       - sdkmanager "build-tools;35.0.0"
       - sdkmanager "ndk;27.0.12077973"
 
-      # Verify installation
       - sdkmanager --list | head -20
 
       - cd $CODEBUILD_SRC_DIR
 
-      # Platform Detection
+      # Detect Platform
       - |
         if [ "$(uname)" = "Darwin" ]; then
           echo "MacOS" > platform.txt
@@ -90,7 +85,7 @@ phases:
       - mkdir -p ${MASST_DIR}
       - unzip -q ${MASST_ZIP}.zip -d ${MASST_DIR}
 
-      # If zip contains nested folder
+      # Flatten nested directory if present
       - |
         INNER_DIR=$(find ${MASST_DIR} -mindepth 1 -maxdepth 1 -type d | head -1)
         if [ -n "$INNER_DIR" ]; then
@@ -107,6 +102,7 @@ phases:
       - echo "========== PRE BUILD =========="
 
       - '[ -f "${INPUT_FILE}" ] || { echo "ERROR: ${INPUT_FILE} not found"; exit 1; }'
+
       - '[ -f "${CONFIG_FILE}" ] || { echo "ERROR: ${CONFIG_FILE} not found"; exit 1; }'
 
       - |
@@ -139,11 +135,15 @@ phases:
         case "$EXT" in
 
           apk|aab)
+
             if [ "$IS_DEBUG" = "true" ]; then
+
               "$MASST_EXE" \
                 -input="${INPUT_FILE}" \
                 -config="${CONFIG_FILE}"
+
             else
+
               "$MASST_EXE" \
                 -input="${INPUT_FILE}" \
                 -config="${CONFIG_FILE}" \
@@ -153,20 +153,25 @@ phases:
                 -keyPassword="${KEY_PASSWORD}" \
                 -v=true \
                 -apk
+
             fi
             ;;
 
           ipa|xcarchive)
+
             "$MASST_EXE" \
               -input="${INPUT_FILE}" \
               -config="${CONFIG_FILE}" \
               -identity="${IDENTITY}"
+
             ;;
 
           *)
+
             echo "Unsupported file type: $EXT"
             exit 1
             ;;
+
         esac
 
       - echo "MASST CLI execution completed."
