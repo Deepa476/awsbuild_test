@@ -2,25 +2,28 @@ version: 0.2
 
 env:
   variables:
-    INPUT_FILE: "app/build/outputs/bundle/prodFlavourRelease/app-prodFlavourrelease.aab"
-    CONFIG_FILE: "keystores/masst-config.bm"
-    SHIELD_LEVEL: "1"
+    # Default parameters (Can be overridden when starting the CodeBuild execution)
+    IS_DEBUG: "false"
+    INPUT_FILE: "app-release.aab"
+    CONFIG_FILE: "bluebeetle_config.bm"
+    MACOS_DOWNLOAD_URL: "https://storage.googleapis.com/masst-assets/Defender-Binary-Integrator/1.0.0/MacOS/MASSTCLI-v1.1.0-darwin-arm64.zip"
+    LINUX_DOWNLOAD_URL: "https://storage.googleapis.com/masst-assets/Defender-Binary-Integrator/1.0.0/Linux/MASSTCLI-v1.1.0-linux-amd64.zip"
 
-    LINUX_DOWNLOAD_URL: "https://storage.googleapis.com/masst-assets/DefenderBinary-Integrator/1.0.0/Linux/MASSTCLI-v1.1.0-linux-amd64.zip"
+    # WARNING: Adjust this path based on your target CodeBuild Ubuntu/Linux container layout
+    ANDROID_HOME: "/usr/local/android-sdk-linux"
 
-    ANDROID_HOME: "/opt/android-sdk"
-    ANDROID_SDK_ROOT: "/opt/android-sdk"
-
-    KEYSTORE_FILE: "keystores/ypnext_keystore_prod.jks"
-    KEYSTORE_PASSWORD: "Ypp@2023"
-    KEY_ALIAS: "ypnextkey"
-    KEY_PASSWORD: "Ypp@2023"
-
+    KEYSTORE_FILE: "Bluebeetle.jks"
+    KEYSTORE_PASSWORD: "bugs@1234"
+    KEY_ALIAS: "key0"
+    KEY_PASSWORD: "bugs@1234"
+    IDENTITY: "Apple Distribution: Bugsmirror Research private limited (BPKUYCFJ74)"
     MASST_DIR: "MASSTCLI_EXTRACTED"
+    ARTIFACTS_DIR: "output"
     MASST_ZIP: "MASSTCLI"
 
-phases:
+    SHIELD_LEVEL: "1"
 
+phases:
   install:
     commands:
 
@@ -110,18 +113,8 @@ phases:
     commands:
 
       - echo "========== BUILD PHASE =========="
-
-      ##############################################
-      # Java
-      ##############################################
-
       - export JAVA_HOME=/usr/lib/jvm/java-17-amazon-corretto
       - export PATH=$JAVA_HOME/bin:$PATH
-
-      ##############################################
-      # Android SDK
-      ##############################################
-
       - export ANDROID_HOME=/opt/android-sdk
       - export ANDROID_SDK_ROOT=/opt/android-sdk
 
@@ -129,23 +122,15 @@ phases:
 
       - java -version
 
-      ##############################################
-
       - cd $dir
 
       - pwd
 
       - ls -la
 
-      ##############################################
-      # local.properties
-      ##############################################
 
       - echo "sdk.dir=/opt/android-sdk" > local.properties
 
-      ##############################################
-      # Gradle TLS
-      ##############################################
 
       - echo "systemProp.https.protocols=TLSv1.2,TLSv1.3" >> gradle.properties
 
