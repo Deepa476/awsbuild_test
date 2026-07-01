@@ -2,31 +2,35 @@ version: 0.2
 
 env:
   variables:
-    IS_DEBUG: "false"
-    INPUT_FILE: "app-release.aab"
-    CONFIG_FILE: "bluebeetle_config.bm"
+    INPUT_FILE: "app/build/outputs/bundle/prodFlavourRelease/app-prodFlavourrelease.aab"
+    CONFIG_FILE: "keystores/masst-config.bm"
+    SHIELD_LEVEL: "1"
 
-    MACOS_DOWNLOAD_URL: "https://storage.googleapis.com/masst-assets/Defender-Binary-Integrator/1.0.0/MacOS/MASSTCLI-v1.1.0-darwin-arm64.zip"
-    LINUX_DOWNLOAD_URL: "https://storage.googleapis.com/masst-assets/Defender-Binary-Integrator/1.0.0/Linux/MASSTCLI-v1.1.0-linux-amd64.zip"
+    LINUX_DOWNLOAD_URL: "https://storage.googleapis.com/masst-assets/DefenderBinary-Integrator/1.0.0/Linux/MASSTCLI-v1.1.0-linux-amd64.zip"
 
-    KEYSTORE_FILE: "Bluebeetle.jks"
-    KEYSTORE_PASSWORD: "bugs@1234"
-    KEY_ALIAS: "key0"
-    KEY_PASSWORD: "bugs@1234"
+    ANDROID_HOME: "/opt/android-sdk"
+    ANDROID_SDK_ROOT: "/opt/android-sdk"
 
-    IDENTITY: "Apple Distribution: Bugsmirror Research private limited (BPKUYCFJ74)"
+    KEYSTORE_FILE: "keystores/ypnext_keystore_prod.jks"
+    KEYSTORE_PASSWORD: "Ypp@2023"
+    KEY_ALIAS: "ypnextkey"
+    KEY_PASSWORD: "Ypp@2023"
 
     MASST_DIR: "MASSTCLI_EXTRACTED"
     MASST_ZIP: "MASSTCLI"
-    ARTIFACTS_DIR: "output"
 
 phases:
+
   install:
     commands:
+
       - echo "========== INSTALL PHASE =========="
 
-      # Install Java (curl is already available as curl-minimal)
-      - yum install -y java-17-amazon-corretto-devel unzip wget tar findutils which
+      - export dir=$PWD
+
+      # Install required packages
+      - yum update -y
+      - yum install -y unzip wget curl zip java-17-amazon-corretto-devel
 
       # Java
       - export JAVA_HOME=/usr/lib/jvm/java-17-amazon-corretto
@@ -35,170 +39,283 @@ phases:
       - java -version
       - echo "JAVA_HOME=$JAVA_HOME"
 
+      ##############################################
       # Android SDK
+      ##############################################
+
+      - mkdir -p /opt/android-sdk/cmdline-tools
+
+      - cd /opt
+
+      - curl -L -o commandlinetools.zip https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip
+
+      - unzip -q commandlinetools.zip
+
+      - mkdir -p /opt/android-sdk/cmdline-tools/latest
+
+      - mv cmdline-tools/* /opt/android-sdk/cmdline-tools/latest/
+
+      - rm -rf cmdline-tools
+      - rm -f commandlinetools.zip
+
       - export ANDROID_HOME=/opt/android-sdk
       - export ANDROID_SDK_ROOT=/opt/android-sdk
 
-      - mkdir -p $ANDROID_HOME/cmdline-tools
-
-      - cd /tmp
-
-      - curl -L -o cmdline-tools.zip https://dl.google.com/android/repository/commandlinetoolslinux-11076708_latest.zip
-
-      - unzip -q cmdline-tools.zip -d $ANDROID_HOME/cmdline-tools
-
-      - mv $ANDROID_HOME/cmdline-tools/cmdline-tools $ANDROID_HOME/cmdline-tools/latest
-
-      - rm -f cmdline-tools.zip
-
       - export PATH=$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$PATH
-
-      - sdkmanager --version
 
       - yes | sdkmanager --licenses
 
       - sdkmanager "platform-tools"
+
       - sdkmanager "platforms;android-36"
+
       - sdkmanager "build-tools;35.0.0"
+
       - sdkmanager "ndk;27.0.12077973"
 
-      - sdkmanager --list | head -20
+      - sdkmanager --list | head -30
 
-      - cd $CODEBUILD_SRC_DIR
+      - cd $dir
 
-      # Detect Platform
-      - |
-        if [ "$(uname)" = "Darwin" ]; then
-          echo "MacOS" > platform.txt
-          DOWNLOAD_URL=$MACOS_DOWNLOAD_URL
-        else
-          echo "Linux" > platform.txt
-          DOWNLOAD_URL=$LINUX_DOWNLOAD_URL
-        fi
-
+      ##############################################
       # Download MASST CLI
+      ##############################################
+
       - echo "Downloading MASST CLI..."
-      - curl -L -o ${MASST_ZIP}.zip ${DOWNLOAD_URL} || wget -O ${MASST_ZIP}.zip ${DOWNLOAD_URL}
 
-      # Extract MASST CLI
+      - curl -L -o ${MASST_ZIP}.zip ${LINUX_DOWNLOAD_URL}
+
       - rm -rf ${MASST_DIR}
-      - mkdir -p ${MASST_DIR}
-      - unzip -q ${MASST_ZIP}.zip -d ${MASST_DIR}
+      - rm -rf temp_extract
 
-      # Flatten nested directory if present
+      - mkdir temp_extract
+
+      - unzip -q ${MASST_ZIP}.zip -d temp_extract
+
+      - INNER_DIR=$(find temp_extract -mindepth 1 -maxdepth 1 -type d | head -1)
+
       - |
-        INNER_DIR=$(find ${MASST_DIR} -mindepth 1 -maxdepth 1 -type d | head -1)
         if [ -n "$INNER_DIR" ]; then
-          mv "$INNER_DIR"/* ${MASST_DIR}/
-          rm -rf "$INNER_DIR"
+          mv "$INNER_DIR" "${MASST_DIR}"
+        else
+          mkdir -p "${MASST_DIR}"
+          mv temp_extract/* "${MASST_DIR}/"
         fi
 
       - chmod +x $(find ${MASST_DIR} -type f -name "MASSTCLI*" || true)
 
-      - echo "MASST CLI Ready"
-
-  pre_build:
-    commands:
-      - echo "========== PRE BUILD =========="
-
-      - '[ -f "${INPUT_FILE}" ] || { echo "ERROR: ${INPUT_FILE} not found"; exit 1; }'
-
-      - '[ -f "${CONFIG_FILE}" ] || { echo "ERROR: ${CONFIG_FILE} not found"; exit 1; }'
-
-      - |
-        if [ "$IS_DEBUG" != "true" ]; then
-          [ -f "${KEYSTORE_FILE}" ] || {
-            echo "ERROR: ${KEYSTORE_FILE} not found"
-            exit 1
-          }
-        fi
+      - echo "MASST CLI READY"
 
   build:
     commands:
-      - echo "========== BUILD =========="
 
-      - export PATH=$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$JAVA_HOME/bin:$PATH
+      - echo "========== BUILD PHASE =========="
 
-      - MASST_EXE=$(find ${MASST_DIR} -type f -name "MASSTCLI*" | head -1)
+      ##############################################
+      # Java
+      ##############################################
+
+      - export JAVA_HOME=/usr/lib/jvm/java-17-amazon-corretto
+      - export PATH=$JAVA_HOME/bin:$PATH
+
+      ##############################################
+      # Android SDK
+      ##############################################
+
+      - export ANDROID_HOME=/opt/android-sdk
+      - export ANDROID_SDK_ROOT=/opt/android-sdk
+
+      - export PATH=$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/build-tools/35.0.0:$PATH
+
+      - java -version
+
+      ##############################################
+
+      - cd $dir
+
+      - pwd
+
+      - ls -la
+
+      ##############################################
+      # local.properties
+      ##############################################
+
+      - echo "sdk.dir=/opt/android-sdk" > local.properties
+
+      ##############################################
+      # Gradle TLS
+      ##############################################
+
+      - echo "systemProp.https.protocols=TLSv1.2,TLSv1.3" >> gradle.properties
+
+      - echo "org.gradle.jvmargs=-Dhttps.protocols=TLSv1.2,TLSv1.3" >> gradle.properties
+
+      ##############################################
+      # Verify Keystore
+      ##############################################
 
       - |
-        if [ ! -f "$MASST_EXE" ]; then
-          echo "ERROR: MASST CLI not found"
+        if [ -f "${KEYSTORE_FILE}" ]; then
+          echo "Keystore Found"
+          ls -lh "${KEYSTORE_FILE}"
+        else
+          echo "ERROR: Keystore Missing"
           exit 1
         fi
 
-      - chmod +x "$MASST_EXE"
+      ##############################################
+      # Gradle
+      ##############################################
 
-      - EXT=$(echo "${INPUT_FILE##*.}" | tr '[:upper:]' '[:lower:]')
+      - chmod +x gradlew
+
+      - ./gradlew --version
+
+      ##############################################
+      # Build Bundle
+      ##############################################
+
+      - ./gradlew clean
+
+      - ./gradlew bundleProdFlavourRelease --stacktrace --refresh-dependencies
+
+      ##############################################
+      # Verify Bundle
+      ##############################################
+
+      - echo "Generated Bundles"
+
+      - find . -name "*.aab"
 
       - |
-        case "$EXT" in
+        if [ -f "${INPUT_FILE}" ]; then
+          echo "Bundle Found"
+          ls -lh "${INPUT_FILE}"
+        else
+          echo "ERROR: Bundle Missing"
+          find . -name "*.aab"
+          exit 1
+        fi
 
-          apk|aab)
+      ##############################################
+      # Verify BM Config
+      ##############################################
 
-            if [ "$IS_DEBUG" = "true" ]; then
+      - echo "Searching BM files..."
 
-              "$MASST_EXE" \
-                -input="${INPUT_FILE}" \
-                -config="${CONFIG_FILE}"
+      - find . -name "*.bm"
 
-            else
+      - |
+        if [ -f "${CONFIG_FILE}" ]; then
+          echo "Config Found"
+          ls -lh "${CONFIG_FILE}"
+        else
+          echo "ERROR: Config Missing"
+          exit 1
+        fi
 
-              "$MASST_EXE" \
-                -input="${INPUT_FILE}" \
-                -config="${CONFIG_FILE}" \
-                -keystore="${KEYSTORE_FILE}" \
-                -storePassword="${KEYSTORE_PASSWORD}" \
-                -alias="${KEY_ALIAS}" \
-                -keyPassword="${KEY_PASSWORD}" \
-                -v=true \
-                -apk
+      ##############################################
+      # MASST SDK Compatibility
+      ##############################################
 
-            fi
-            ;;
+      - mkdir -p $HOME/Android
 
-          ipa|xcarchive)
+      - ln -sfn /opt/android-sdk $HOME/Android/Sdk
 
-            "$MASST_EXE" \
-              -input="${INPUT_FILE}" \
-              -config="${CONFIG_FILE}" \
-              -identity="${IDENTITY}"
+      - export ANDROID_HOME=$HOME/Android/Sdk
+      - export ANDROID_SDK_ROOT=$HOME/Android/Sdk
 
-            ;;
+      - export PATH=$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/build-tools/35.0.0:$PATH
 
-          *)
+      - echo "========== ANDROID SDK =========="
 
-            echo "Unsupported file type: $EXT"
-            exit 1
-            ;;
+      - echo "ANDROID_HOME=$ANDROID_HOME"
 
-        esac
+      - echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
 
-      - echo "MASST CLI execution completed."
+      - ls -ld $HOME/Android/Sdk
+
+      - ls -ld $HOME/Android/Sdk/platforms
+
+      - ls -lh $HOME/Android/Sdk/platforms/android-36/android.jar
+
+      - find $HOME/Android/Sdk -name android.jar
+
+      - env | grep ANDROID
+
+      ##############################################
+      # Locate MASST Executable
+      ##############################################
+
+      - export MASST_EXE=$(find ${MASST_DIR} -type f -name "MASSTCLI*" | head -1)
+
+      - echo "MASST Executable: $MASST_EXE"
+
+      - |
+        if [ ! -x "$MASST_EXE" ]; then
+          echo "ERROR: MASST Executable Not Found"
+          exit 1
+        fi
+
+      ##############################################
+      # Execute MASST
+      ##############################################
+
+      - |
+        printf "%s\n" "${SHIELD_LEVEL}" | "$MASST_EXE" \
+          -input="${INPUT_FILE}" \
+          -config="${CONFIG_FILE}" \
+          -keystore="${KEYSTORE_FILE}" \
+          -storePassword="${KEYSTORE_PASSWORD}" \
+          -alias="${KEY_ALIAS}" \
+          -keyPassword="${KEY_PASSWORD}" \
+          -v=true \
+          -apk
+
+      ##############################################
+      # Output
+      ##############################################
+
+      - echo "========== OUTPUT =========="
+
+      - ls -la
+
+      - ls -la output || true
+
+      - find output -type f || true
+
+      - find . -name "*.aab"
+
+      - find . -name "*.apk"
+
+      - echo "========== CONFIG =========="
+
+      - cat ${CONFIG_FILE} || true
+
+      - echo "========== FINAL FILES =========="
+
+      - find . \( -name "*.aab" -o -name "*.apk" \)
+
+      - echo "MASST EXECUTION COMPLETED"
 
   post_build:
     commands:
+
       - echo "========== POST BUILD =========="
 
-      - mkdir -p ${ARTIFACTS_DIR}
+      - rm -rf ${MASST_DIR}
 
-      - |
-        {
-          echo "Platform: $(cat platform.txt)"
-          echo "Debug: ${IS_DEBUG}"
-          echo "Build Time: $(date)"
-          echo "Status: SUCCESS"
-        } > ${ARTIFACTS_DIR}/report.txt
+      - rm -rf ${MASST_ZIP}.zip
 
-      - rm -f ${MASST_ZIP}.zip
+      - rm -rf temp_extract
 
-      - |
-        if [ "$CODEBUILD_BUILD_SUCCEEDING" = "1" ]; then
-          echo "Build completed successfully."
-        else
-          echo "Build failed."
-        fi
+      - echo "Cleanup Complete"
 
 artifacts:
+  discard-paths: yes
   files:
-    - output/**/*
+    - output/*.aab
+    - output/*.apk
+    - app/build/outputs/bundle/prodFlavourRelease/*.aab
+    - app/build/outputs/apk/**/*.apk
