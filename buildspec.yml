@@ -23,15 +23,20 @@ env:
 phases:
   install:
     commands:
-      - echo "===== INSTALL PHASE ====="
+      - echo "========== INSTALL PHASE =========="
+
+      # Update packages
+      - yum update -y
+
+      # Install required packages
+      - yum install -y java-17-amazon-corretto-devel curl wget unzip tar findutils which
 
       # Java
-      - apt-get update
-      - apt-get install -y openjdk-17-jdk curl unzip wget ca-certificates lib32stdc++6 lib32z1
-      - update-ca-certificates
-
-      - export JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
+      - export JAVA_HOME=/usr/lib/jvm/java-17-amazon-corretto
       - export PATH=$JAVA_HOME/bin:$PATH
+
+      - java -version
+      - echo "JAVA_HOME=$JAVA_HOME"
 
       # Android SDK
       - export ANDROID_HOME=/opt/android-sdk
@@ -39,21 +44,30 @@ phases:
 
       - mkdir -p $ANDROID_HOME/cmdline-tools
 
+      # Download Android Command Line Tools
       - cd /tmp
       - curl -L -o cmdline-tools.zip https://dl.google.com/android/repository/commandlinetoolslinux-11076708_latest.zip
       - unzip -q cmdline-tools.zip -d $ANDROID_HOME/cmdline-tools
       - mv $ANDROID_HOME/cmdline-tools/cmdline-tools $ANDROID_HOME/cmdline-tools/latest
       - rm -f cmdline-tools.zip
 
+      # PATH
       - export PATH=$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$PATH
 
+      # Verify sdkmanager
       - sdkmanager --version
+
+      # Accept licenses
       - yes | sdkmanager --licenses
 
+      # Install Android SDK Components
       - sdkmanager "platform-tools"
       - sdkmanager "platforms;android-36"
       - sdkmanager "build-tools;35.0.0"
       - sdkmanager "ndk;27.0.12077973"
+
+      # Verify installation
+      - sdkmanager --list | head -20
 
       - cd $CODEBUILD_SRC_DIR
 
@@ -68,106 +82,116 @@ phases:
         fi
 
       # Download MASST CLI
+      - echo "Downloading MASST CLI..."
       - curl -L -o ${MASST_ZIP}.zip ${DOWNLOAD_URL} || wget -O ${MASST_ZIP}.zip ${DOWNLOAD_URL}
 
+      # Extract MASST CLI
       - rm -rf ${MASST_DIR}
       - mkdir -p ${MASST_DIR}
       - unzip -q ${MASST_ZIP}.zip -d ${MASST_DIR}
 
+      # If zip contains nested folder
+      - |
+        INNER_DIR=$(find ${MASST_DIR} -mindepth 1 -maxdepth 1 -type d | head -1)
+        if [ -n "$INNER_DIR" ]; then
+          mv "$INNER_DIR"/* ${MASST_DIR}/
+          rm -rf "$INNER_DIR"
+        fi
+
       - chmod +x $(find ${MASST_DIR} -type f -name "MASSTCLI*" || true)
+
+      - echo "MASST CLI Ready"
 
   pre_build:
     commands:
-      - echo "===== VALIDATING INPUTS ====="
-      - '[ -f "${INPUT_FILE}" ] || { echo "Missing ${INPUT_FILE}"; exit 1; }'
-      - '[ -f "${CONFIG_FILE}" ] || { echo "Missing ${CONFIG_FILE}"; exit 1; }'
+      - echo "========== PRE BUILD =========="
+
+      - '[ -f "${INPUT_FILE}" ] || { echo "ERROR: ${INPUT_FILE} not found"; exit 1; }'
+      - '[ -f "${CONFIG_FILE}" ] || { echo "ERROR: ${CONFIG_FILE} not found"; exit 1; }'
 
       - |
         if [ "$IS_DEBUG" != "true" ]; then
           [ -f "${KEYSTORE_FILE}" ] || {
-            echo "Missing ${KEYSTORE_FILE}"
+            echo "ERROR: ${KEYSTORE_FILE} not found"
             exit 1
           }
         fi
 
   build:
     commands:
+      - echo "========== BUILD =========="
+
       - export PATH=$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$JAVA_HOME/bin:$PATH
 
       - MASST_EXE=$(find ${MASST_DIR} -type f -name "MASSTCLI*" | head -1)
 
       - |
         if [ ! -f "$MASST_EXE" ]; then
-          echo "MASST CLI not found"
+          echo "ERROR: MASST CLI not found"
           exit 1
         fi
 
       - chmod +x "$MASST_EXE"
 
-      - EXT=${INPUT_FILE##*.}
-      - EXT=$(echo "$EXT" | tr '[:upper:]' '[:lower:]')
+      - EXT=$(echo "${INPUT_FILE##*.}" | tr '[:upper:]' '[:lower:]')
 
       - |
         case "$EXT" in
 
-        apk|aab)
+          apk|aab)
+            if [ "$IS_DEBUG" = "true" ]; then
+              "$MASST_EXE" \
+                -input="${INPUT_FILE}" \
+                -config="${CONFIG_FILE}"
+            else
+              "$MASST_EXE" \
+                -input="${INPUT_FILE}" \
+                -config="${CONFIG_FILE}" \
+                -keystore="${KEYSTORE_FILE}" \
+                -storePassword="${KEYSTORE_PASSWORD}" \
+                -alias="${KEY_ALIAS}" \
+                -keyPassword="${KEY_PASSWORD}" \
+                -v=true \
+                -apk
+            fi
+            ;;
 
-          if [ "$IS_DEBUG" = "true" ]; then
-
-            "$MASST_EXE" \
-              -input="${INPUT_FILE}" \
-              -config="${CONFIG_FILE}"
-
-          else
-
+          ipa|xcarchive)
             "$MASST_EXE" \
               -input="${INPUT_FILE}" \
               -config="${CONFIG_FILE}" \
-              -keystore="${KEYSTORE_FILE}" \
-              -storePassword="${KEYSTORE_PASSWORD}" \
-              -alias="${KEY_ALIAS}" \
-              -keyPassword="${KEY_PASSWORD}" \
-              -v=true \
-              -apk
+              -identity="${IDENTITY}"
+            ;;
 
-          fi
-          ;;
-
-        ipa|xcarchive)
-
-          "$MASST_EXE" \
-            -input="${INPUT_FILE}" \
-            -config="${CONFIG_FILE}" \
-            -identity="${IDENTITY}"
-
-          ;;
-
-        *)
-
-          echo "Unsupported file type"
-
-          exit 1
-
-          ;;
-
+          *)
+            echo "Unsupported file type: $EXT"
+            exit 1
+            ;;
         esac
+
+      - echo "MASST CLI execution completed."
 
   post_build:
     commands:
+      - echo "========== POST BUILD =========="
+
       - mkdir -p ${ARTIFACTS_DIR}
 
       - |
-        echo "Platform=$(cat platform.txt)" > ${ARTIFACTS_DIR}/report.txt
-        echo "Debug=${IS_DEBUG}" >> ${ARTIFACTS_DIR}/report.txt
-        echo "Build Time=$(date)" >> ${ARTIFACTS_DIR}/report.txt
+        {
+          echo "Platform: $(cat platform.txt)"
+          echo "Debug: ${IS_DEBUG}"
+          echo "Build Time: $(date)"
+          echo "Status: SUCCESS"
+        } > ${ARTIFACTS_DIR}/report.txt
 
       - rm -f ${MASST_ZIP}.zip
 
       - |
         if [ "$CODEBUILD_BUILD_SUCCEEDING" = "1" ]; then
-          echo "Build Successful"
+          echo "Build completed successfully."
         else
-          echo "Build Failed"
+          echo "Build failed."
         fi
 
 artifacts:
